@@ -31,14 +31,14 @@ class Test(ABC):
 
 
 class Xv6UserTest(Test):
-    def __init__(self, name: str, timeout: timedelta,
+    def __init__(self, name: str, timeout: timedelta, 
                        suffix_size: int = 0, extra_lines: int = 0):
         super().__init__(name, timeout)
         self.suffix_size = suffix_size
         self.extra_lines = extra_lines
 
     def expect(self, out: RWStream) -> TestResult:
-        pattern = "test " + self.name + ": .*"
+        pattern = "test " + self.name + ": .{" + str(self.suffix_size) + "}"
         if not self.is_ok_separated():
             pattern += "OK"
 
@@ -48,30 +48,24 @@ class Xv6UserTest(Test):
         if not re.fullmatch(pattern, status):
             raise ValueError(f"Unexpected {status = }")
 
+        for i in range(self.extra_lines):
+            out.readline()
+
         if self.is_ok_separated():
-            lines = []
-
-            status = "EOF"
-            while line := out.readline():
-                if line in ("OK", "FAILED"):
-                    status = line
-                    break
-                lines.append(f"[DBG] {line}")
-
+            status = out.readline()
             if status != "OK":
-                print(*lines, sep="\n")
-                raise ValueError(f"Unexpected {status = }, expected OK")
+                raise ValueError(f"Unexpected {status = }")
 
         end = datetime.now()
 
         return TestResult(duration=end - begin)
-
+    
     def is_ok_separated(self) -> bool:
         return self.extra_lines != 0 or self.name == "outofinodes"
 
 
 class PatternTest(Test):
-    def __init__(self, name: str, timeout: timedelta,
+    def __init__(self, name: str, timeout: timedelta, 
                        patterns: list[str]):
         super().__init__(name, timeout)
         self.patterns = patterns
