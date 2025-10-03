@@ -108,6 +108,9 @@ int             either_copyout(int user_dst, uint64 dst, void *src, uint64 len);
 int             either_copyin(void *dst, int user_src, uint64 src, uint64 len);
 void            procdump(void);
 
+int             dump(void);
+int             dump2(int, int, uint64*);
+
 // swtch.S
 void            swtch(struct context*, struct context*);
 
@@ -201,5 +204,7 @@ int            lst_empty(struct list*);
 void           bd_init(void*,void*);
 void           bd_free(void*);
 void           *bd_malloc(uint64);
+
+
 
 

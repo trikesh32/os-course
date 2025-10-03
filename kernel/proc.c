@@ -693,3 +693,74 @@ procdump(void)
     printf("\n");
   }
 }
+
+int dump(void){
+  struct proc* p = myproc();
+  struct trapframe* trap = p->trapframe;
+  printf("s2 = %d\n", (int) trap->s2);
+  printf("s3 = %d\n", (int) trap->s3);
+  printf("s4 = %d\n", (int) trap->s4);
+  printf("s5 = %d\n", (int) trap->s5);
+  printf("s6 = %d\n", (int) trap->s6);
+  printf("s7 = %d\n", (int) trap->s7);
+  printf("s8 = %d\n", (int) trap->s8);
+  printf("s9 = %d\n", (int) trap->s9);
+  printf("s10 = %d\n", (int) trap->s10);
+  printf("s11 = %d\n", (int) trap->s11);
+  return 0;
+}
+
+
+
+int dump2(int pid, int register_num, uint64* return_value){
+  struct proc* p;
+  struct proc* current = myproc();
+  struct trapframe* tf;
+  uint64 reg_value;
+  if (register_num < 2 || register_num > 11){
+    return -3;
+  }
+  int found = 0;
+  for(p=proc; p<&proc[NPROC]; p++){
+    acquire(&p->lock);
+    if(p->pid == pid){
+      found = 1;
+      break;
+    }
+    release(&p->lock);
+  }
+  if(!found)
+    return -2;
+  if (current->pid != pid && p->parent->pid != current->pid){
+    release(&p->lock);
+    return -1;
+  }
+  tf = p->trapframe;
+  switch(register_num) {
+        case 2: reg_value = tf->s2;
+        break;
+        case 3: reg_value = tf->s3;
+        break;
+        case 4: reg_value = tf->s4;
+        break;
+        case 5: reg_value = tf->s5;
+        break;
+        case 6: reg_value = tf->s6;
+        break;
+        case 7: reg_value = tf->s7;
+        break;
+        case 8: reg_value = tf->s8;
+        break;
+        case 9: reg_value = tf->s9;
+        break;
+        case 10: reg_value = tf->s10;
+        break;
+        case 11: reg_value = tf->s11;
+    }
+  if (copyout(current->pagetable, (uint64)return_value, (char *)&reg_value, 8) < 0){
+    release(&p->lock);
+    return -4;
+  }
+  release(&p->lock);
+  return 0;
+}
