@@ -466,29 +466,23 @@ parseexec(char **ps, char *es)
   struct cmd *ret;
 
   if (strncmp(*ps, "case", 4) == 0) {
-    // Пропускаем слово "case"
-    gettoken(ps, es, 0, 0); // "case"
+    gettoken(ps, es, 0, 0);
 
-    // Слово, по которому будет проверка
     if (gettoken(ps, es, &q, &eq) != 'a')
       panic("expected word after 'case'");
     *eq = 0;
     struct casecmd *ccmd = (struct casecmd*)casecmd(q);
 
-    // Проверяем слово "in"
     if (strncmp(*ps, "in", 2) != 0)
       panic("expected 'in' after case <word>");
-    gettoken(ps, es, 0, 0); // "in"
+    gettoken(ps, es, 0, 0);
 
-    // Парсим список вариантов
     while (1) {
-      // Проверка на завершение
       if (strncmp(*ps, "esac", 4) == 0) {
-        gettoken(ps, es, 0, 0); // consume 'esac'
+        gettoken(ps, es, 0, 0);
         break;
       }
 
-      // Паттерн до ')'
       char *patq, *pateq;
       if (gettoken(ps, es, &patq, &pateq) != 'a')
         panic("expected pattern before )");
@@ -496,16 +490,14 @@ parseexec(char **ps, char *es)
 
       if (!peek(ps, es, ")"))
         panic("expected ')' after pattern");
-      gettoken(ps, es, 0, 0); // consume ')'
+      gettoken(ps, es, 0, 0); 
 
-      // Теперь команда для этого паттерна
       if (ccmd->ncases >= MAXCASES)
         panic("too many case branches");
       ccmd->cases[ccmd->ncases].pattern = patq;
       ccmd->cases[ccmd->ncases].cmd = parseexec(ps, es);
       ccmd->ncases++;
 
-      // consume ;;
       if (peek(ps, es, ";")) gettoken(ps, es, 0, 0);
       if (peek(ps, es, ";")) gettoken(ps, es, 0, 0);
     }
