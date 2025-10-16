@@ -10,7 +10,9 @@
 #define PIPE  3
 #define LIST  4
 #define BACK  5
+#define CASE 6
 
+#define MAXCASES 10
 #define MAXARGS 10
 
 struct cmd {
@@ -48,6 +50,19 @@ struct backcmd {
   int type;
   struct cmd *cmd;
 };
+
+struct caseentry {
+  char *pattern;
+  struct cmd *cmd;
+};
+
+struct casecmd {
+  int type;
+  char *word;
+  struct caseentry cases[MAXCASES];
+  int ncases;
+};
+
 
 int fork1(void);  // Fork but panics on failure.
 void panic(char*);
@@ -126,6 +141,22 @@ runcmd(struct cmd *cmd)
     bcmd = (struct backcmd*)cmd;
     if(fork1() == 0)
       runcmd(bcmd->cmd);
+    break;
+  
+  case CASE:
+    struct casecmd *ccmd = (struct casecmd*)cmd;
+    int matched = 0;
+    for(int i = 0; i < ccmd->ncases; i++) {
+      if(strcmp(ccmd->cases[i].pattern, "*") == 0 ||
+        strcmp(ccmd->word, ccmd->cases[i].pattern) == 0) {
+        runcmd(ccmd->cases[i].cmd);
+        matched = 1;
+        break;
+      }
+    }
+    if(!matched) {
+      fprintf(2, "no match for case '%s'\n", ccmd->word);
+    }
     break;
   }
   exit(0);
@@ -257,6 +288,19 @@ backcmd(struct cmd *subcmd)
   cmd->cmd = subcmd;
   return (struct cmd*)cmd;
 }
+
+struct cmd*
+casecmd(char *word)
+{
+  struct casecmd *cmd;
+  cmd = malloc(sizeof(*cmd));
+  memset(cmd, 0, sizeof(*cmd));
+  cmd->type = CASE;
+  cmd->word = word;
+  cmd->ncases = 0;
+  return (struct cmd*)cmd;
+}
+
 //PAGEBREAK!
 // Parsing
 
@@ -421,6 +465,54 @@ parseexec(char **ps, char *es)
   struct execcmd *cmd;
   struct cmd *ret;
 
+  if (strncmp(*ps, "case", 4) == 0) {
+    // Пропускаем слово "case"
+    gettoken(ps, es, 0, 0); // "case"
+
+    // Слово, по которому будет проверка
+    if (gettoken(ps, es, &q, &eq) != 'a')
+      panic("expected word after 'case'");
+    *eq = 0;
+    struct casecmd *ccmd = (struct casecmd*)casecmd(q);
+
+    // Проверяем слово "in"
+    if (strncmp(*ps, "in", 2) != 0)
+      panic("expected 'in' after case <word>");
+    gettoken(ps, es, 0, 0); // "in"
+
+    // Парсим список вариантов
+    while (1) {
+      // Проверка на завершение
+      if (strncmp(*ps, "esac", 4) == 0) {
+        gettoken(ps, es, 0, 0); // consume 'esac'
+        break;
+      }
+
+      // Паттерн до ')'
+      char *patq, *pateq;
+      if (gettoken(ps, es, &patq, &pateq) != 'a')
+        panic("expected pattern before )");
+      *pateq = 0;
+
+      if (!peek(ps, es, ")"))
+        panic("expected ')' after pattern");
+      gettoken(ps, es, 0, 0); // consume ')'
+
+      // Теперь команда для этого паттерна
+      if (ccmd->ncases >= MAXCASES)
+        panic("too many case branches");
+      ccmd->cases[ccmd->ncases].pattern = patq;
+      ccmd->cases[ccmd->ncases].cmd = parseexec(ps, es);
+      ccmd->ncases++;
+
+      // consume ;;
+      if (peek(ps, es, ";")) gettoken(ps, es, 0, 0);
+      if (peek(ps, es, ";")) gettoken(ps, es, 0, 0);
+    }
+
+    return (struct cmd*)ccmd;
+  }
+
   if(peek(ps, es, "("))
     return parseblock(ps, es);
 
@@ -488,6 +580,13 @@ nulterminate(struct cmd *cmd)
   case BACK:
     bcmd = (struct backcmd*)cmd;
     nulterminate(bcmd->cmd);
+    break;
+  
+  case CASE:
+    struct casecmd *ccmd = (struct casecmd*)cmd;
+    for(int i = 0; i < ccmd->ncases; i++) {
+      nulterminate(ccmd->cases[i].cmd);
+    }
     break;
   }
   return cmd;
