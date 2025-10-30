@@ -145,3 +145,17 @@ memcpy(void *dst, const void *src, uint n)
 {
   return memmove(dst, src, n);
 }
+
+int
+strncmp(const char *s1, const char *s2, int n)
+{
+  int i;
+  
+  for(i = 0; i < n; i++) {
+    if(s1[i] != s2[i])
+      return s1[i] - s2[i];
+    if(s1[i] == '\0')
+      break;
+  }
+  return 0;
+}
