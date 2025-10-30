@@ -176,8 +176,10 @@ getcmd(char *buf, int nbuf)
 int
 main(void)
 {
-  static char buf[100];
+  static char buf[1000];
+  static char line[100];
   int fd;
+  int len = 0;
 
   // Ensure that three file descriptors are open.
   while((fd = open("console", O_RDWR)) >= 0){
@@ -188,20 +190,60 @@ main(void)
   }
 
   // Read and run input commands.
-  while(getcmd(buf, sizeof(buf)) >= 0){
+  while(1){
+    write(2, "$ ", 2);
+    memset(buf, 0, sizeof(buf));
+    memset(line, 0, sizeof(line));
+    len = 0;
+
+    if(gets(line, sizeof(line)) == 0)
+      break;
+
+    if(strncmp(line, "case", 4) == 0){
+      int l = strlen(line);
+      memmove(buf + len, line, l);
+      len += l;
+      buf[len++] = '\n';
+
+      while(1){
+        write(2, "> ", 2);
+        memset(line, 0, sizeof(line));
+        if(gets(line, sizeof(line)) == 0)
+          break;
+
+        l = strlen(line);
+        if(len + l + 2 >= sizeof(buf))
+          break;
+        memmove(buf + len, line, l);
+        len += l;
+        buf[len++] = '\n';
+
+        if(strncmp(line, "esac", 4) == 0)
+          break;
+      }
+      buf[len] = 0;
+    } else {
+      int l = strlen(line);
+      memmove(buf, line, l);
+      buf[l] = 0;
+    }
+
     if(buf[0] == 'c' && buf[1] == 'd' && buf[2] == ' '){
-      // Chdir must be called by the parent, not the child.
-      buf[strlen(buf)-1] = 0;  // chop \n
+      buf[strlen(buf)-1] = 0;
       if(chdir(buf+3) < 0)
         fprintf(2, "cannot cd %s\n", buf+3);
       continue;
     }
+
     if(fork1() == 0)
       runcmd(parsecmd(buf));
     wait(0);
   }
+
   exit(0);
 }
+
+
 
 void
 panic(char *s)
@@ -468,43 +510,54 @@ parseexec(char **ps, char *es)
   if (strncmp(*ps, "case", 4) == 0) {
     gettoken(ps, es, 0, 0);
 
+    while(**ps == ' ' || **ps == '\n' || **ps == '\r')
+      (*ps)++;
     if (gettoken(ps, es, &q, &eq) != 'a')
       panic("expected word after 'case'");
     *eq = 0;
+
     struct casecmd *ccmd = (struct casecmd*)casecmd(q);
 
+    while(**ps == ' ' || **ps == '\n' || **ps == '\r')
+      (*ps)++;
     if (strncmp(*ps, "in", 2) != 0)
       panic("expected 'in' after case <word>");
     gettoken(ps, es, 0, 0);
 
     while (1) {
+      while(**ps == ' ' || **ps == '\n' || **ps == '\r')
+        (*ps)++;
       if (strncmp(*ps, "esac", 4) == 0) {
         gettoken(ps, es, 0, 0);
         break;
       }
-
       char *patq, *pateq;
       if (gettoken(ps, es, &patq, &pateq) != 'a')
         panic("expected pattern before )");
       *pateq = 0;
 
+      while(**ps == ' ' || **ps == '\n' || **ps == '\r')
+        (*ps)++;
       if (!peek(ps, es, ")"))
         panic("expected ')' after pattern");
-      gettoken(ps, es, 0, 0); 
+      gettoken(ps, es, 0, 0);
 
       if (ccmd->ncases >= MAXCASES)
         panic("too many case branches");
+
       ccmd->cases[ccmd->ncases].pattern = patq;
+
       ccmd->cases[ccmd->ncases].cmd = parseexec(ps, es);
       ccmd->ncases++;
 
-      if (peek(ps, es, ";")) gettoken(ps, es, 0, 0);
-      if (peek(ps, es, ";")) gettoken(ps, es, 0, 0);
+      while(**ps == ' ' || **ps == '\n' || **ps == '\r' || **ps == ';')
+        (*ps)++;
     }
 
     return (struct cmd*)ccmd;
   }
 
+  // --- обычная exec-ветка ---
   if(peek(ps, es, "("))
     return parseblock(ps, es);
 
@@ -529,6 +582,7 @@ parseexec(char **ps, char *es)
   cmd->eargv[argc] = 0;
   return ret;
 }
+
 
 // NUL-terminate all the counted strings.
 struct cmd*
