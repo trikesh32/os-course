@@ -117,7 +117,6 @@ void *addr(int k, int bi) {
 // allocate nbytes, but malloc won't return anything smaller than LEAF_SIZE
 void *bd_malloc(uint64 nbytes) {
   int fk, k;
-
   acquire(&lock);
 
   // Find a free block >= nbytes, starting with smallest k possible
