@@ -6,11 +6,15 @@
 #include "proc.h"
 #include "defs.h"
 
+
+
 struct cpu cpus[NCPU];
 
-struct proc proc[NPROC];
-
+struct spinlock procs_lock;
+struct list2 procs;
 struct proc *initproc;
+
+int pcount = 0;
 
 int nextpid = 1;
 struct spinlock pid_lock;
@@ -26,36 +30,14 @@ extern char trampoline[]; // trampoline.S
 // must be acquired before any p->lock.
 struct spinlock wait_lock;
 
-// Allocate a page for each process's kernel stack.
-// Map it high in memory, followed by an invalid
-// guard page.
-void
-proc_mapstacks(pagetable_t kpgtbl)
-{
-  struct proc *p;
-  
-  for(p = proc; p < &proc[NPROC]; p++) {
-    char *pa = kalloc();
-    if(pa == 0)
-      panic("kalloc");
-    uint64 va = KSTACK((int) (p - proc));
-    kvmmap(kpgtbl, va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
-  }
-}
-
 // initialize the proc table.
 void
 procinit(void)
 {
-  struct proc *p;
-  
   initlock(&pid_lock, "nextpid");
   initlock(&wait_lock, "wait_lock");
-  for(p = proc; p < &proc[NPROC]; p++) {
-      initlock(&p->lock, "proc");
-      p->state = UNUSED;
-      p->kstack = KSTACK((int) (p - proc));
-  }
+  initlock(&procs_lock, "procs_lock");
+  list2_init(&procs);
 }
 
 // Must be called with interrupts disabled,
@@ -109,24 +91,30 @@ allocpid()
 static struct proc*
 allocproc(void)
 {
-  struct proc *p;
+  if (pcount == NPROC)
+    return 0;
 
-  for(p = proc; p < &proc[NPROC]; p++) {
-    acquire(&p->lock);
-    if(p->state == UNUSED) {
-      goto found;
-    } else {
-      release(&p->lock);
-    }
+  struct proc *p = bd_malloc(sizeof(struct proc));
+
+  if (p == 0) {
+    return 0;
   }
-  return 0;
 
-found:
+  *p = (struct proc){0};
+  initlock(&p->lock, "proc");
+
   p->pid = allocpid();
   p->state = USED;
 
   // Allocate a trapframe page.
   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
+    freeproc(p);
+    release(&p->lock);
+    return 0;
+  }
+
+  // Allocate a kernel stack
+  if ((p->kstack = (uint64)kalloc()) == 0) {
     freeproc(p);
     release(&p->lock);
     return 0;
@@ -146,6 +134,8 @@ found:
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
 
+  pcount++;
+
   return p;
 }
 
@@ -155,6 +145,8 @@ found:
 static void
 freeproc(struct proc *p)
 {
+  if(p->kstack)
+    kfree((void*)p->kstack);
   if(p->trapframe)
     kfree((void*)p->trapframe);
   p->trapframe = 0;
@@ -169,6 +161,7 @@ freeproc(struct proc *p)
   p->killed = 0;
   p->xstate = 0;
   p->state = UNUSED;
+  pcount--;
 }
 
 // Create a user page table for a given process, with no user memory,
@@ -251,7 +244,10 @@ userinit(void)
 
   p->state = RUNNABLE;
 
-  release(&p->lock);
+  // process lock is not held by allocproc, it can be safely pushed to list
+  acquire(&procs_lock);
+  list2_add(&procs, &p->list);
+  release(&procs_lock);
 }
 
 // Grow or shrink user memory by n bytes.
@@ -273,7 +269,6 @@ growproc(int n)
   p->sz = sz;
   return 0;
 }
-
 // Create a new process, copying the parent.
 // Sets up child kernel stack to return as if from fork() system call.
 int
@@ -312,15 +307,16 @@ fork(void)
 
   pid = np->pid;
 
-  release(&np->lock);
-
   acquire(&wait_lock);
   np->parent = p;
   release(&wait_lock);
 
-  acquire(&np->lock);
   np->state = RUNNABLE;
-  release(&np->lock);
+
+  // process lock is not held by allocproc, it can be safely pushed to list
+  acquire(&procs_lock);
+  list2_add(&procs, &np->list);
+  release(&procs_lock);
 
   return pid;
 }
@@ -330,13 +326,20 @@ fork(void)
 void
 reparent(struct proc *p)
 {
-  struct proc *pp;
 
-  for(pp = proc; pp < &proc[NPROC]; pp++){
+  for(struct list2 *pl = list2_begin(&procs); 
+      pl != &procs; 
+      list2_iterate(&procs, &pl)) {
+    release(&procs_lock);
+
+    struct proc *pp = (struct proc *)pl;
+
     if(pp->parent == p){
       pp->parent = initproc;
       wakeup(initproc);
     }
+
+    acquire(&procs_lock);
   }
 }
 
@@ -366,9 +369,10 @@ exit(int status)
   p->cwd = 0;
 
   acquire(&wait_lock);
-
+  acquire(&procs_lock);
   // Give any children to init.
   reparent(p);
+  release(&procs_lock);
 
   // Parent might be sleeping in wait().
   wakeup(p->parent);
@@ -390,21 +394,26 @@ exit(int status)
 int
 wait(uint64 addr)
 {
-  struct proc *pp;
   int havekids, pid;
   struct proc *p = myproc();
 
   acquire(&wait_lock);
-
   for(;;){
     // Scan through table looking for exited children.
     havekids = 0;
-    for(pp = proc; pp < &proc[NPROC]; pp++){
+
+    acquire(&procs_lock);
+    for(struct list2 *pl = list2_begin(&procs); 
+        pl != &procs; 
+        list2_iterate(&procs, &pl)) {
+      release(&procs_lock);
+
+      struct proc *pp = (struct proc *)pl;
+
       if(pp->parent == p){
         // make sure the child isn't still in exit() or swtch().
-        acquire(&pp->lock);
-
         havekids = 1;
+        acquire(&pp->lock);
         if(pp->state == ZOMBIE){
           // Found one.
           pid = pp->pid;
@@ -412,16 +421,26 @@ wait(uint64 addr)
                                   sizeof(pp->xstate)) < 0) {
             release(&pp->lock);
             release(&wait_lock);
+            acquire(&procs_lock);
+            list2_release(&procs, pl);
+            release(&procs_lock);
+
             return -1;
           }
           freeproc(pp);
           release(&pp->lock);
           release(&wait_lock);
+          acquire(&procs_lock);
+          list2_delete(&procs, &pp->list);
+          list2_release(&procs, pl);
+          release(&procs_lock);
           return pid;
         }
         release(&pp->lock);
       }
+      acquire(&procs_lock);
     }
+    release(&procs_lock);
 
     // No point waiting if we don't have any children.
     if(!havekids || killed(p)){
@@ -444,18 +463,19 @@ wait(uint64 addr)
 void
 scheduler(void)
 {
-  struct proc *p;
   struct cpu *c = mycpu();
-
+  
   c->proc = 0;
   for(;;){
-    // The most recent process to run may have had interrupts
-    // turned off; enable them to avoid a deadlock if all
-    // processes are waiting.
+    // Avoid deadlock by ensuring that devices can interrupt.
     intr_on();
 
-    int found = 0;
-    for(p = proc; p < &proc[NPROC]; p++) {
+    acquire(&procs_lock);
+    for(struct list2 *pl = list2_begin(&procs); 
+        pl != &procs; 
+        list2_iterate(&procs, &pl)) {
+      release(&procs_lock);
+      struct proc *p = (struct proc *)pl;
       acquire(&p->lock);
       if(p->state == RUNNABLE) {
         // Switch to chosen process.  It is the process's job
@@ -468,15 +488,12 @@ scheduler(void)
         // Process is done running for now.
         // It should have changed its p->state before coming back.
         c->proc = 0;
-        found = 1;
       }
       release(&p->lock);
+      acquire(&procs_lock);
     }
-    if(found == 0) {
-      // nothing to run; stop running on this core until an interrupt.
-      intr_on();
-      asm volatile("wfi");
-    }
+    release(&procs_lock);
+
   }
 }
 
@@ -532,11 +549,8 @@ forkret(void)
     // File system initialization must be run in the context of a
     // regular process (e.g., because it calls sleep), and thus cannot
     // be run from main().
-    fsinit(ROOTDEV);
-
     first = 0;
-    // ensure other cores see first=0.
-    __sync_synchronize();
+    fsinit(ROOTDEV);
   }
 
   usertrapret();
@@ -578,9 +592,12 @@ sleep(void *chan, struct spinlock *lk)
 void
 wakeup(void *chan)
 {
-  struct proc *p;
-
-  for(p = proc; p < &proc[NPROC]; p++) {
+  acquire(&procs_lock);
+  for(struct list2 *pl = list2_begin(&procs); 
+      pl != &procs; 
+      list2_iterate(&procs, &pl)) {
+    release(&procs_lock);
+    struct proc *p = (struct proc *)pl;
     if(p != myproc()){
       acquire(&p->lock);
       if(p->state == SLEEPING && p->chan == chan) {
@@ -588,7 +605,9 @@ wakeup(void *chan)
       }
       release(&p->lock);
     }
+    acquire(&procs_lock);
   }
+  release(&procs_lock);
 }
 
 // Kill the process with the given pid.
@@ -597,9 +616,12 @@ wakeup(void *chan)
 int
 kill(int pid)
 {
-  struct proc *p;
-
-  for(p = proc; p < &proc[NPROC]; p++){
+  acquire(&procs_lock);
+  for(struct list2 *pl = list2_begin(&procs); 
+      pl != &procs; 
+      list2_iterate(&procs, &pl)) {
+    release(&procs_lock);
+    struct proc *p = (struct proc *)pl;
     acquire(&p->lock);
     if(p->pid == pid){
       p->killed = 1;
@@ -608,10 +630,16 @@ kill(int pid)
         p->state = RUNNABLE;
       }
       release(&p->lock);
+      acquire(&procs_lock);
+      list2_release(&procs, pl);
+      release(&procs_lock);
       return 0;
     }
     release(&p->lock);
+    acquire(&procs_lock);
   }
+  release(&procs_lock);
+
   return -1;
 }
 
@@ -678,11 +706,17 @@ procdump(void)
   [RUNNING]   "run   ",
   [ZOMBIE]    "zombie"
   };
-  struct proc *p;
   char *state;
 
   printf("\n");
-  for(p = proc; p < &proc[NPROC]; p++){
+
+  acquire(&procs_lock);
+  for(struct list2 *pl = list2_begin(&procs); 
+      pl != &procs; 
+      list2_iterate(&procs, &pl)) {
+    release(&procs_lock);
+
+    struct proc *p = (struct proc *)pl;
     if(p->state == UNUSED)
       continue;
     if(p->state >= 0 && p->state < NELEM(states) && states[p->state])
@@ -691,5 +725,8 @@ procdump(void)
       state = "???";
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
+
+    acquire(&procs_lock);
   }
+  release(&procs_lock);
 }
