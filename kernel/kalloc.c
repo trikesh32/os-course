@@ -28,6 +28,7 @@ kinit()
 {
   // initlock(&kmem.lock, "kmem");
   bd_init((void*)PGROUNDUP((uint64)end), (void*)PHYSTOP);
+  slab_init();
   // freerange(end, (void*)PHYSTOP);
 }
 

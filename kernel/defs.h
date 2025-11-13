@@ -202,4 +202,9 @@ void           bd_init(void*,void*);
 void           bd_free(void*);
 void           *bd_malloc(uint64);
 
+// slab.c
+void           slab_init(void);
+void*           slab_malloc(char);
+void           slab_free(void*, char);
+
 
