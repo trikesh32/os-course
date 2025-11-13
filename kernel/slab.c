@@ -110,7 +110,7 @@ void slab_free(void* ptr, char string){
     }
     else
         return;
-    while (p != (void*)0 && (ptr < (void*)(p + META_DATA_SIZE) || ptr >= (void*)(p + SLAB_SIZE)))
+    while (p != (void*)0 && (ptr < (void*)p + META_DATA_SIZE || ptr >= (void*)p + SLAB_SIZE))
         p = p->next_slab;
     if (p == (void*) 0)
         return;
