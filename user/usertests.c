@@ -88,13 +88,13 @@ copyout(char *s)
       printf("open(README) failed\n");
       exit(1);
     }
+    printf("hype\n");
     int n = read(fd, (void*)addr, 8192);
     if(n > 0){
       printf("read(fd, %p, 8192) returned %d, not -1 or 0\n", (void*)addr, n);
       exit(1);
     }
     close(fd);
-
     int fds[2];
     if(pipe(fds) < 0){
       printf("pipe() failed\n");
