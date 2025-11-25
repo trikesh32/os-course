@@ -95,6 +95,9 @@ kfree(void *pa)
   acquire(&kmem.lock);
   
   uint64 index = ((uint64)pa - (uint64)kmem.pa_start) / PGSIZE;
+  if(kmem.refs[index] > 0)
+    kmem.refs[index]--;
+
   if(kmem.refs[index] != 0) {
     release(&kmem.lock);
     return;
