@@ -30,9 +30,7 @@ list2_acquire(struct list2 *l)
     l->rcount++;
 }
 
-void 
-list2_release(struct list2 *l1, struct list2 *l2)
-{
+void list2_release(struct list2 *l1, struct list2 *l2) {
     if (l1 == l2)
         return;
 
@@ -41,7 +39,8 @@ list2_release(struct list2 *l1, struct list2 *l2)
     if (l2->rcount == 0) {
         list2_release(l1, l2->next);
         list2_release(l1, l2->prev);
-        bd_free(l2);
+        struct proc *p = (struct proc*)l2;
+        slab_free(p, 'p');
     }
 }
 
@@ -70,7 +69,7 @@ list2_delete(struct list2 *l1, struct list2 *l2)
     l2->rcount -= 2;
 
     if (l2->rcount == 0)
-        bd_free(l2);
+        slab_free((struct proc*)l2, 'p');
 } 
 
 struct list2*

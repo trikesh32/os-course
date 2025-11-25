@@ -94,7 +94,7 @@ allocproc(void)
   if (pcount == NPROC)
     return 0;
 
-  struct proc *p = bd_malloc(sizeof(struct proc));
+  struct proc *p = slab_malloc('p');
 
   if (p == 0) {
     return 0;

@@ -31,7 +31,7 @@ filealloc(void)
   struct file *f;
 
   acquire(&ftable.lock);
-  f = bd_malloc(sizeof(struct file));
+  f = slab_malloc('f');
   if (f){
     memset(f, 0, sizeof(struct file));
     f->ref = 1;
@@ -66,7 +66,7 @@ fileclose(struct file *f)
     return;
   }
   ff = *f;
-  bd_free(f);
+  slab_free(f, 'f');
   release(&ftable.lock);
 
   if(ff.type == FD_PIPE){
