@@ -17,12 +17,10 @@
 struct slab {
     struct slab* next_slab;
     short object_size;
-    short max_object_count;
     short count;
-    char padding[2];
-    unsigned long bitmap[MAX_OBJECTS_COUNT_PER_SLAB / 8 / sizeof(unsigned long)];
+    void* free_list;
 };
-
+void* get_address(struct slab* base, int idx);
 
 struct slab* proc_cache;
 struct slab* file_cache;
@@ -31,9 +29,14 @@ struct slab* create_new_slab(unsigned long size){
     struct slab* res = kalloc();
     res->next_slab = 0;
     res->object_size = size;
-    res->max_object_count = (SLAB_SIZE - META_DATA_SIZE) / res->object_size;
     res->count = 0;
-    memset(res->bitmap, 0, MAX_OBJECTS_COUNT_PER_SLAB / sizeof(unsigned long));
+    short max_object_count = (SLAB_SIZE - META_DATA_SIZE) / res->object_size;
+    void* ptr = &(res->free_list);
+    for (short i=0; i<max_object_count; ++i){
+        *(void**)ptr = get_address(res, i);
+        ptr = *(void**)ptr;
+    }
+    *(void**)ptr = 0;
     return res;
 }
 
@@ -44,25 +47,6 @@ void slab_init(){
         panic("slab: initialization failed");
     }
 }
-
-static int bit_is_set(unsigned long* bitmap, int index) {
-    int long_index = index / (sizeof(unsigned long) * 8);
-    int bit_index = index % (sizeof(unsigned long) * 8);
-    return (bitmap[long_index] & (1UL << bit_index)) != 0;
-}
-
-static void bit_set(unsigned long* bitmap, int index) {
-    int long_index = index / (sizeof(unsigned long) * 8);
-    int bit_index = index % (sizeof(unsigned long) * 8);
-    bitmap[long_index] |= (1UL << bit_index);
-}
-
-static void bit_clear(unsigned long* bitmap, int index) {
-    int long_index = index / (sizeof(unsigned long) * 8);
-    int bit_index = index % (sizeof(unsigned long) * 8);
-    bitmap[long_index] &= ~(1UL << bit_index);
-}
-
 
 void* get_address(struct slab* base, int idx){
     return (void*) base + META_DATA_SIZE + base->object_size * idx;
@@ -81,21 +65,21 @@ void* slab_malloc(char string){
     }
     else
         return (void*)0;
-    while (p->next_slab != (void*)0 && p->count == p->max_object_count)
+    while (p->next_slab != (void*)0 && p->free_list == (void*) 0)
         p = p->next_slab;
-    if (p->next_slab == (void*)0 && p->count == p->max_object_count){
+    if (p->next_slab == (void*)0 && p->free_list == (void*) 0){
         struct slab* new_slab = create_new_slab(string == 'p' ? sizeof(struct proc) : sizeof(struct file));
         p->next_slab = new_slab;
-        bit_set(new_slab->bitmap, 0);
         new_slab->count+=1;
-        return get_address(new_slab, 0);
+        void* temp = new_slab->free_list;
+        new_slab->free_list = *(void**)(new_slab->free_list);
+        return temp;
     }
-    for (short i=0; i<p->max_object_count;++i){
-        if (!bit_is_set(p->bitmap, i)){
-            bit_set(p->bitmap, i);
-            p->count+=1;
-            return get_address(p, i);
-        }
+    if (p->free_list != (void*)0){
+        void* temp = p->free_list;
+        p->free_list = *(void**)(p->free_list);
+        p->count += 1;
+        return temp;
     }
     return (void*)0;
 }
@@ -114,8 +98,10 @@ void slab_free(void* ptr, char string){
         p = p->next_slab;
     if (p == (void*) 0)
         return;
-    bit_clear(p->bitmap, get_idx(p, ptr));
     p->count -= 1;
+    void* temp = p->free_list;
+    p->free_list = ptr;
+    *(void**)(p->free_list) = temp;
     if (p->count == 0 && p != proc_cache && p != file_cache){
         struct slab* s = string == 'p' ? proc_cache : file_cache;
         while (s->next_slab != p)
