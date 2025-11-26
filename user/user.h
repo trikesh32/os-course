@@ -22,6 +22,8 @@ int getpid(void);
 char* sbrk(int);
 int sleep(int);
 int uptime(void);
+int compact(void);
+int compactinfo(void);
 
 // ulib.c
 int stat(const char*, struct stat*);

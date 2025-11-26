@@ -64,6 +64,10 @@ void            ramdiskrw(struct buf*);
 void*           kalloc(void);
 void            kfree(void *);
 void            kinit(void);
+uint8           ref_dec(void* pa);
+uint8           ref_inc(void* pa);
+uint8           ref_get(void* pa);
+
 
 // log.c
 void            initlog(int, struct superblock*);
@@ -174,6 +178,9 @@ uint64          walkaddr(pagetable_t, uint64);
 int             copyout(pagetable_t, uint64, char *, uint64);
 int             copyin(pagetable_t, char *, uint64, uint64);
 int             copyinstr(pagetable_t, char *, uint64, uint64);
+void            vmprint(pagetable_t);
+int             uvmcow(pagetable_t, uint64);
+int             uvmlazy(pagetable_t, uint64);
 
 // plic.c
 void            plicinit(void);
@@ -196,10 +203,15 @@ void           lst_push(struct list*, void *);
 void*          lst_pop(struct list*);
 void           lst_print(struct list*);
 int            lst_empty(struct list*);
-
 // buddy.c
 void           bd_init(void*,void*);
 void           bd_free(void*);
 void           *bd_malloc(uint64);
+
+// compact.c
+int            compact_move_page(uint64, uint64);
+int            compact_memory(void);
+int            compact_get_fragmentation(void);
+
 
 
