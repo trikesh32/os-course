@@ -6,6 +6,8 @@
 #include "proc.h"
 #include "defs.h"
 
+extern pagetable_t kernel_pagetable;
+
 static int
 update_ptes_in_pagetable(pagetable_t pagetable, uint64 old_pa, uint64 new_pa, int level)
 {
