@@ -371,23 +371,33 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 
   while(len > 0){
     va0 = PGROUNDDOWN(dstva);
+    if(va0 >= MAXVA)
+      return -1;
     pte = walk(pagetable, va0, 0);
-    if(pte == 0 || (*pte & PTE_V) == 0)
+    if(pte == 0)
       return -1;
-    if((*pte & PTE_COW)) {
-      if(uvmcow(pagetable, va0) < 0)
+    if((*pte & PTE_U) == 0) // || (*pte & (PTE_V | PTE_M)) == 0)
+      return -1;
+
+    // if (*pte & PTE_M) {
+    //   if (*pte & PTE_V)
+    //     panic("vm.c: not mapped and not valid");
+
+    //   if (uvmlazyalloc(pagetable, PGROUNDDOWN(va0)))
+    //     return -1;
+    // }
+
+    if ((*pte & PTE_W) == 0) {
+      if (uvmcow(pagetable, va0) != 0) {
         return -1;
-      pte = walk(pagetable, va0, 0);
+      }
     }
-    
+
     pa0 = PTE2PA(*pte);
-    if(pa0 == 0)
-      return -1;
-    
     n = PGSIZE - (dstva - va0);
     if(n > len)
       n = len;
-    
+
     memmove((void *)(pa0 + (dstva - va0)), src, n);
 
     len -= n;
@@ -396,7 +406,6 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
   }
   return 0;
 }
-
 // Copy from user to kernel.
 // Copy len bytes to dst from virtual address srcva in a given page table.
 // Return 0 on success, -1 on error.
