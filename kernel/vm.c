@@ -411,7 +411,7 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
       if (*pte & PTE_V)
         panic("vm.c: not mapped and not valid");
 
-      if (uvmlazy(pagetable, PGROUNDDOWN(va0)))
+      if (uvmlazy(pagetable, PGROUNDDOWN(va0)) != 0)
         return -1;
 
       pte = walk(pagetable, va0, 0);
