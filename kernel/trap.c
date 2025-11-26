@@ -181,12 +181,19 @@ clockintr()
     acquire(&tickslock);
     ticks++;
     wakeup(&ticks);
+    
+    if(ticks % 6000 == 0){
+      release(&tickslock);
+      int pages_moved = compact_memory();
+      if(pages_moved > 0){
+        printf("Auto-compaction: moved %d pages\n", pages_moved);
+      }
+      acquire(&tickslock);
+    }
+    
     release(&tickslock);
   }
 
-  // ask for the next timer interrupt. this also clears
-  // the interrupt request. 1000000 is about a tenth
-  // of a second.
   w_stimecmp(r_time() + 1000000);
 }
 

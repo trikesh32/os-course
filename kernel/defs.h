@@ -203,10 +203,15 @@ void           lst_push(struct list*, void *);
 void*          lst_pop(struct list*);
 void           lst_print(struct list*);
 int            lst_empty(struct list*);
-
 // buddy.c
 void           bd_init(void*,void*);
 void           bd_free(void*);
 void           *bd_malloc(uint64);
+
+// compact.c
+int            compact_move_page(uint64, uint64);
+int            compact_memory(void);
+int            compact_get_fragmentation(void);
+
 
 

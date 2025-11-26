@@ -79,8 +79,6 @@ sys_kill(void)
   return kill(pid);
 }
 
-// return how many clock tick interrupts have occurred
-// since start.
 uint64
 sys_uptime(void)
 {
@@ -90,4 +88,16 @@ sys_uptime(void)
   xticks = ticks;
   release(&tickslock);
   return xticks;
+}
+
+uint64
+sys_compact(void)
+{
+  return compact_memory();
+}
+
+uint64
+sys_compactinfo(void)
+{
+  return compact_get_fragmentation();
 }
